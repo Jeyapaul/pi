@@ -37,16 +37,15 @@ pi --version      # banner/title show "Jey's Pi"
 pi -p "say hi"    # smoke test
 ```
 
-## Post-install setup (automated)
+## Post-install setup (automatic)
 
-The fork ships my personal config in [`jey/`](jey/): extensions, skills, helper scripts, and a settings template.
+The tarball ships my personal config in `jey/`: extensions, skills, helper scripts, and a settings template. **The npm `postinstall` hook runs the setup automatically** — right after `npm install -g` finishes you'll see the "Jey's Pi installed successfully" block with the remaining manual steps. It's idempotent, so re-running is safe:
 
 ```bash
-# from a clone of this repo:
-./jey/setup.sh
+bash "$(npm root -g)/@earendil-works/pi-coding-agent/jey/setup.sh"
 ```
 
-This installs (idempotently — safe to re-run):
+This installs:
 - **Extensions**: `status-line.ts` (3-line footer: context bar, cost, times, diff, req counters, rate-limit countdown), `message-header.ts` (previous-message breadcrumb bar, fullscreen mode)
 - **Skill**: `plan-mode` (token-efficient planning workflow, `/skill:plan-mode`)
 - **Helpers**: `pi-sessions` (session table with copyable resume commands), `resolve-session.js` (resume by session name) + PATH entry
@@ -69,6 +68,10 @@ pi-sessions   # verify: table of sessions with copyable resume commands
 ## Config & data
 
 Jey's Pi uses the **same `.pi` config directory** as upstream pi (intentional — see README): sessions, extensions (`~/.pi/agent/extensions/`), skills (`~/.pi/agent/skills/`), and settings carry over untouched.
+
+## Secrets & keys
+
+This repo and its packages contain **no API keys or secrets** (verified by scanning every blob in git history). Keys live only on your machines in `~/.pi/agent/settings.json` (`apiKeys`), env vars, or `~/.pi/agent/oauth.json` — never commit them. The packaged tarball is scanned the same way.
 
 ## Updating
 

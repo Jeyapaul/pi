@@ -19,23 +19,20 @@ if [ -d "$(dirname "$0")/skills/plan-mode" ]; then
 fi
 
 # 2. Settings: merge only missing keys — never overwrite user's models/sessions
-python3 - "$AGENT_DIR/settings.json" << 'PYEOF'
+python3 - "$AGENT_DIR/settings.json" "$(dirname "$0")/settings.json" << 'PYEOF'
 import json, sys, os
-settings_path = sys.argv[1]
-mine = json.load(open(os.path.join(os.path.dirname(__file__) or ".", "settings.json"))) if os.path.exists(os.path.join(os.path.dirname(__file__), "settings.json")) else {}
-here = os.path.dirname(os.path.abspath(__file__))
-mine = json.load(open(os.path.join(here, "settings.json")))
-cur = {}
-if os.path.exists(settings_path):
-	cur = json.load(open(settings_path))
-changed = False
+settings_path, template_path = sys.argv[1], sys.argv[2]
+mine = json.load(open(template_path))
+cur = json.load(open(settings_path)) if os.path.exists(settings_path) else {}
+changed, added = False, []
 for key in ("theme", "tuiMode", "retry", "terminal", "showCacheMissNotices"):
 	if key not in cur and key in mine:
 		cur[key] = mine[key]
+		added.append(key)
 		changed = True
 if changed:
 	json.dump(cur, open(settings_path, "w"), indent=2)
-	print(f"settings.json updated: {', '.join(cur.keys())}")
+	print("settings.json updated:", ", ".join(added))
 else:
 	print("settings.json already has Jey's Pi keys (unchanged)")
 PYEOF
@@ -48,4 +45,19 @@ for rc in "$HOME/.zshrc" "$HOME/.bashrc"; do
 	fi
 done
 
-echo "Jey's Pi setup complete. Extensions: $(ls "$AGENT_DIR/extensions" | tr '\n' ' ')"
+echo ""
+echo "==============================================================="
+echo " Jey's Pi installed successfully."
+echo "==============================================================="
+echo " Done automatically: extensions + skills + helpers copied to"
+echo "   ~/.pi/agent/{extensions,skills,bin}"
+echo "   settings merged (fullscreen TUI, retry policy, theme)"
+echo ""
+echo " Remaining manual steps:"
+echo "   1. pi                 # start; /model to pick your model"
+echo "   2. /login             # provider auth (or set API keys in settings.json)"
+echo "   3. Add the resume-by-name wrapper to ~/.zshrc"
+echo "      (see the repo INSTALL.md — pins a project directory)"
+echo ""
+echo " Extensions installed: $(ls "$AGENT_DIR/extensions" 2>/dev/null | tr '\n' ' ')"
+echo "==============================================================="
