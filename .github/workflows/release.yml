@@ -50,8 +50,8 @@ jobs:
       - name: Validate (npm run check)
         run: npm run check
 
-      - name: Test (./test.sh)
-        run: ./test.sh
+      - name: Test (npm test)
+        run: npm test
 
       - name: Read version
         id: version
