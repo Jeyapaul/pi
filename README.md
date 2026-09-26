@@ -11,7 +11,48 @@
 | **Release pipeline** | `.github/workflows/release.yml` | Every merge of `working` → `main` is tested, built, packaged and published as a GitHub Release tagged like upstream (`v0.87.1`, …) so fork and parent versions stay in sync | Merge `working` → `main` (I do this manually on instruction); the release is created automatically |
 | **Personal config bundle** | [`jey/`](jey/) — extensions (`status-line.ts` 3-line footer, `message-header.ts` breadcrumb bar), `plan-mode` skill, `pi-sessions`/`resolve-session.js` helpers, settings template | My session tooling travels with the fork; a new machine gets the identical setup with one command | Run [`jey/setup.sh`](jey/setup.sh) after installing (see [INSTALL.md](INSTALL.md)) — idempotent, never touches your model/package choices |
 
-Everything below this divider is upstream pi's README, unchanged.
+## Screenshots — every customization, why it exists
+
+### 🖥️ Rebrand + 3-line status line
+
+![Rebrand + status line](jey/screenshots/banner.png)
+
+Upstream shows `π vX.Y.Z` with a one-line default footer. I live in the terminal all day — I need **identity** (which fork is running), **git context** (repo · branch), **model + effort + pricing**, and a **3-line status footer**: context-fill bar (green → yellow → red), session cost with token flow, session/api time, diff stats, and per-call request health. This is the "at a glance" layer — I never run `/session` or `pi -p` to check spend mid-task.
+
+### 📊 Request accounting + long-session detail
+
+![Status line — long-running session](jey/screenshots/statusline.png)
+
+Zoom on a long-running session: `req 512 ✓507 ✗5` counts **every LLM call** — successes green, failures red (a rate-limited or errored call is counted, not silently dropped — upstream gives extensions no retry-attempt signal, so counting is done at message end-state). Context pressure at 61% with cost trends keeps "can I finish this task in-context?" answerable without opening dialogs.
+
+### ⏳ Rate-limit waits, honored & visible
+
+![Rate-limited countdown](jey/screenshots/ratelimit.png)
+
+Upstream retries rate limits blindly on its own schedule and can exhaust before the provider's window opens, halting the workflow. Jey's Pi honors the **provider-stated wait** (headers when available; body text like *"try again in 12s"* parsed otherwise), shows a **live countdown** instead of failing silently, and the retry policy is tuned so the wait is respected, not retried into.
+
+### 🧭 Message breadcrumb header
+
+![Message breadcrumb](jey/screenshots/message-header.png)
+
+Scrolling up in a long session loses your anchor. The breadcrumb header pins the **previous user message** above the transcript: first line by default, full text on hover, click to jump the viewport straight to it — then it shows that message's predecessor, so repeated clicks walk up the conversation. (Fullscreen mode: `tuiMode: "fullscreen"` keeps the input dock fixed while the transcript scrolls.)
+
+### 🗂️ Session table with copyable resume commands
+
+![pi-sessions table](jey/screenshots/pi-sessions.png)
+
+Upstream only offers an interactive picker. I need to reopen any session **in a new terminal, on any machine**: `pi-sessions` prints all sessions (name, modified, msgs, cost) with a ready `pi --session "name"` command, and resume-by-name is resolved through a name→file helper — no IDs to copy.
+
+<div align="center">
+
+---
+
+**Everything below this divider is upstream pi's README, unchanged.**
+
+---
+
+</div>
+
 
 ---
 
