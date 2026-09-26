@@ -37,15 +37,24 @@ pi --version      # banner/title show "Jey's Pi"
 pi -p "say hi"    # smoke test
 ```
 
-## Post-install commands (my standard setup)
+## Post-install setup (automated)
+
+The fork ships my personal config in [`jey/`](jey/): extensions, skills, helper scripts, and a settings template.
 
 ```bash
-# 1. Sessions helper on PATH (list sessions + copyable resume commands)
-export PATH="$HOME/.pi/agent/bin:$PATH"          # add to ~/.zshrc
-pi-sessions                                      # table: name, cost, command
+# from a clone of this repo:
+./jey/setup.sh
+```
 
-# 2. Resume by session NAME (wrapper resolves name → session file)
-#    add to ~/.zshrc:
+This installs (idempotently — safe to re-run):
+- **Extensions**: `status-line.ts` (3-line footer: context bar, cost, times, diff, req counters, rate-limit countdown), `message-header.ts` (previous-message breadcrumb bar, fullscreen mode)
+- **Skill**: `plan-mode` (token-efficient planning workflow, `/skill:plan-mode`)
+- **Helpers**: `pi-sessions` (session table with copyable resume commands), `resolve-session.js` (resume by session name) + PATH entry
+- **Settings**: merges missing keys (`tuiMode: fullscreen`, rate-limit-honoring retry policy) — never overwrites your model, packages, or existing values
+
+Then add the resume-by-name wrapper to `~/.zshrc` (manual — it pins a project directory):
+
+```bash
 pi() { cd "/Users/jey/Development/Pi Workspace" || return
   if [[ ("$1" == "--session" || "$1" == "--fork") && -n "$2" ]]; then
     local resolved
@@ -54,14 +63,7 @@ pi() { cd "/Users/jey/Development/Pi Workspace" || return
   fi
   command pi "$@"
 }
-
-# 3. Fullscreen TUI (fixed input dock, scrollable transcript)
-#    ~/.pi/agent/settings.json → "tuiMode": "fullscreen"
-
-# 4. Retry policy that honors provider rate-limit waits
-#    ~/.pi/agent/settings.json →
-"retry": { "maxRetries": 5, "baseDelayMs": 5000,
-           "provider": { "maxRetries": 3, "maxRetryDelayMs": 0 } }
+pi-sessions   # verify: table of sessions with copyable resume commands
 ```
 
 ## Config & data

@@ -9,6 +9,7 @@
 | **Package identity `@jeyapaul/pi`** | `packages/coding-agent/package.json` → `name` | Releases are packaged as `@jeyapaul/pi` tarballs on [GitHub Releases](../../releases) so my machines install my build, not upstream's | `npm i -g` from a release tarball — see [INSTALL.md](INSTALL.md) |
 | **Automated upstream sync** | `.github/workflows/sync-upstream.yml` | Keeps `main` synced with upstream and re-applies my changes (branch `working`) on top automatically | Automatic weekly + manual dispatch; conflicts open a PR against `working` for me to resolve first |
 | **Release pipeline** | `.github/workflows/release.yml` | Every merge of `working` → `main` is tested, built, packaged and published as a GitHub Release tagged like upstream (`v0.87.1`, …) so fork and parent versions stay in sync | Merge `working` → `main` (I do this manually on instruction); the release is created automatically |
+| **Personal config bundle** | [`jey/`](jey/) — extensions (`status-line.ts` 3-line footer, `message-header.ts` breadcrumb bar), `plan-mode` skill, `pi-sessions`/`resolve-session.js` helpers, settings template | My session tooling travels with the fork; a new machine gets the identical setup with one command | Run [`jey/setup.sh`](jey/setup.sh) after installing (see [INSTALL.md](INSTALL.md)) — idempotent, never touches your model/package choices |
 
 Everything below this divider is upstream pi's README, unchanged.
 

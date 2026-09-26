@@ -1,0 +1,185 @@
+#!/usr/bin/env node
+/**
+ * pi-sessions — list all pi sessions as a table with ready-to-copy resume commands.
+ *
+ * Usage:
+ *   pi-sessions                 # all sessions, newest first, grouped by project
+ *   pi-sessions --current       # only sessions for the current working directory
+ *   pi-sessions --named         # only sessions that have a name
+ *   pi-sessions --json          # machine-readable output
+ *
+ * Each row shows the exact command to resume that session in a new terminal
+ * (`pi --session "name"` for named sessions, `pi --session <id-prefix>` otherwise).
+ * Requires the pi() shell wrapper (resolves names via ~/.pi/agent/bin/resolve-session.js).
+ */
+
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+
+const args = process.argv.slice(2);
+const flags = new Set(args.filter((a) => a.startsWith("-")));
+const query = args.find((a) => !a.startsWith("-"))?.toLowerCase();
+
+const root = path.join(os.homedir(), ".pi", "agent", "sessions");
+const CWD = process.cwd();
+const cwdSlug = "--" + CWD.replaceAll("/", "-");
+
+function fmtSize(bytes) {
+	if (bytes < 1024) return `${bytes}B`;
+	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}K`;
+	return `${(bytes / (1024 * 1024)).toFixed(1)}M`;
+}
+
+function fmtDate(ms) {
+	const d = new Date(ms);
+	const now = Date.now();
+	const diff = now - ms;
+	const sameDay = new Date(now).toDateString() === d.toDateString();
+	if (diff < 60_000) return "just now";
+	if (sameDay) return `today ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+	const month = d.toLocaleString("en", { month: "short" });
+	return `${month} ${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function truncate(s, n) {
+	return s.length > n ? s.slice(0, n - 1) + "…" : s;
+}
+
+function extract(file) {
+	let name; // last session_info wins (renames)
+	let id;
+	let cwd;
+	let msgs = 0;
+	let cost = 0;
+	try {
+		const lines = fs.readFileSync(file, "utf8").split("\n");
+		for (const line of lines) {
+			if (line.includes('"session_info"')) {
+				try {
+					const e = JSON.parse(line);
+					if (e.type === "session_info" && typeof e.name === "string") name = e.name;
+				} catch {}
+				continue;
+			}
+			if (id === undefined && line.includes('"type":"session"')) {
+				try {
+					const e = JSON.parse(line);
+					if (e.type === "session") {
+						id = e.id;
+						cwd = e.cwd;
+					}
+				} catch {}
+				continue;
+			}
+			if (line.includes('"role":"assistant"') && line.includes('"cost"')) {
+				msgs++;
+				const c = line.match(/"cost":\{[^}]*"total":([\d.]+)\}/);
+				if (c) cost += parseFloat(c[1]) || 0;
+			}
+		}
+	} catch {
+		return null;
+	}
+	return { name, id, cwd, msgs, cost };
+}
+
+function scanDir(dir) {	const out = [];
+	let entries;
+	try {
+		entries = fs.readdirSync(dir);
+	} catch {
+		return out;
+	}
+	for (const entry of entries) {
+		if (!entry.endsWith(".jsonl")) continue;
+		const file = path.join(dir, entry);
+		let st;
+		try {
+			st = fs.statSync(file);
+		} catch {
+			continue;
+		}
+		const info = extract(file);
+		if (!info || !info.id) continue;
+		out.push({
+			file,
+			name: info.name,
+			id: info.id,
+			cwd: info.cwd,
+			msgs: info.msgs,
+			cost: info.cost,
+			mtime: st.mtimeMs,
+			size: st.size,
+		});
+	}
+	return out;
+}
+
+let sessions = [];
+let projectDirs = [];
+try {
+	projectDirs = fs
+		.readdirSync(root, { withFileTypes: true })
+		.filter((e) => e.isDirectory())
+		.map((e) => e.name);
+} catch {
+	console.error("No sessions directory at", root);
+	process.exit(1);
+}
+for (const dir of projectDirs) sessions.push(...scanDir(path.join(root, dir)));
+
+sessions.sort((a, b) => b.mtime - a.mtime);
+
+if (flags.has("--current")) sessions = sessions.filter((s) => s.cwd === CWD);
+if (flags.has("--named")) sessions = sessions.filter((s) => s.name);
+if (query) sessions = sessions.filter((s) => (s.name || "").toLowerCase().includes(query) || s.id.includes(query));
+
+if (sessions.length === 0) {
+	console.log("No sessions match.");
+	process.exit(0);
+}
+
+if (flags.has("--json")) {
+	console.log(JSON.stringify(sessions, null, 2));
+	process.exit(0);
+}
+
+// Group by project (keep newest-first within group, groups ordered by newest session)
+const groups = new Map();
+for (const s of sessions) {
+	const key = s.cwd || "unknown";
+	if (!groups.has(key)) groups.set(key, []);
+	groups.get(key).push(s);
+}
+
+const nameW = 24;
+const cmdW = 46;
+const header = `  ${"NAME".padEnd(nameW)}  ${"MODIFIED".padEnd(16)}  ${"MSGS".padStart(4)}  ${"COST".padStart(7)}  COMMAND`;
+const rule = "  " + "-".repeat(nameW + 2 + 16 + 2 + 4 + 2 + 7 + 2 + cmdW);
+
+for (const [cwd, list] of groups) {
+	const isCurrent = cwd === CWD;
+	console.log(`\n${isCurrent ? "▸ " : "  "}${cwd}${isCurrent ? "   (current project)" : ""}`);
+	console.log(header);
+	for (const s of list) {
+		const name = s.name ? truncate(s.name, nameW - 1) : truncate(`(unnamed ${s.id.slice(0, 8)})`, nameW - 1);
+		const command = s.name ? `pi --session "${s.name}"` : `pi --session ${s.id.slice(0, 8)}`;
+		const row =
+			"  " +
+			name.padEnd(nameW) +
+			"  " +
+			fmtDate(s.mtime).padEnd(16) +
+			"  " +
+			String(s.msgs).padStart(4) +
+			"  " +
+			(`$${s.cost.toFixed(2)}`.padStart(7)) +
+			"  " +
+			command;
+		console.log(row);
+	}
+}
+
+console.log(
+	`\n  ${sessions.length} session(s) · copy a COMMAND to resume in a new terminal · flags: --current --named --json <filter>`,
+);

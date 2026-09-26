@@ -1,0 +1,24 @@
+{
+  "defaultModel": "claude-opus-4-6",
+  "defaultProvider": "anthropic",
+  "lastChangelogVersion": "0.87.1",
+  "packages": [
+    "npm:@ollama/pi-web-search",
+    "git:github.com/huggingface/pi-llama",
+    "npm:pi-git-auth"
+  ],
+  "theme": "dark",
+  "tuiMode": "fullscreen",
+  "retry": {
+    "maxRetries": 5,
+    "baseDelayMs": 5000,
+    "provider": {
+      "maxRetries": 3,
+      "maxRetryDelayMs": 0
+    }
+  },
+  "terminal": {
+    "showTerminalProgress": true
+  },
+  "showCacheMissNotices": true
+}
