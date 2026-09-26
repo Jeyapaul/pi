@@ -36,16 +36,22 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fd-find ripgrep
+          sudo ln -s $(which fdfind) /usr/local/bin/fd
+
+      - name: Build (generates model data + dist)
+        run: npm run build
 
       - name: Validate (npm run check)
         run: npm run check
 
       - name: Test (./test.sh)
         run: ./test.sh
-
-      - name: Build
-        run: npm run build
 
       - name: Read version
         id: version
