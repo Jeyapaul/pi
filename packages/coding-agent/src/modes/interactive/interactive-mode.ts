@@ -54,7 +54,6 @@ import chalk from "chalk";
 import { spawn } from "child_process";
 import {
 	APP_NAME,
-	APP_TITLE,
 	CONFIG_DIR_NAME,
 	getAgentDir,
 	getAuthPath,
@@ -955,7 +954,7 @@ export class InteractiveMode {
 
 		// Add header with keybindings from config (unless silenced)
 		if (this.options.verbose || !this.settingsManager.getQuietStartup()) {
-			const logo = theme.bold(theme.fg("accent", APP_NAME)) + theme.fg("dim", ` v${this.version}`);
+			const logo = theme.bold(theme.fg("accent", "Jey's Pi")) + theme.fg("dim", ` v${this.version}`); // JEYS_PI: brand banner
 
 			// Build startup instructions using keybinding hint helpers
 			const hint = (keybinding: AppKeybinding, description: string) => keyHint(keybinding, description);
@@ -1066,9 +1065,9 @@ export class InteractiveMode {
 		const cwdBasename = path.basename(this.sessionManager.getCwd());
 		const sessionName = this.sessionManager.getSessionName();
 		if (sessionName) {
-			this.ui.terminal.setTitle(`${APP_TITLE} - ${sessionName} - ${cwdBasename}`);
+			this.ui.terminal.setTitle(`Jey's Pi - ${sessionName} - ${cwdBasename}`); // JEYS_PI: brand title
 		} else {
-			this.ui.terminal.setTitle(`${APP_TITLE} - ${cwdBasename}`);
+			this.ui.terminal.setTitle(`Jey's Pi - ${cwdBasename}`); // JEYS_PI: brand title
 		}
 	}
 
