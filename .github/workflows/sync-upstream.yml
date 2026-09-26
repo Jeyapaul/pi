@@ -1,0 +1,97 @@
+name: Sync Upstream
+
+# Keeps this fork synced with earendil-works/pi:
+#   1. fast-forward/merge upstream/main into fork's main
+#   2. merge main into "working" (Jey's Pi changes live here)
+#      - clean merge  -> run checks, push working
+#      - conflicts    -> open a PR targeting "working" so conflicts get fixed
+#                        there first; main is never touched until working is merged
+#                        into it manually
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out fork
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "jpi-sync-bot"
+          git config user.email "jpi-sync-bot@users.noreply.github.com"
+          git remote add upstream https://github.com/earendil-works/pi.git
+          git fetch upstream main --tags
+
+      - name: Sync main from upstream
+        id: sync_main
+        run: |
+          BEFORE=$(git rev-parse main)
+          git merge --ff-only upstream/main || {
+            # upstream history diverged (should not happen on a clean fork main)
+            git merge upstream/main --no-edit -m "Merge upstream/main into main"
+          }
+          AFTER=$(git rev-parse main)
+          if [ "$BEFORE" = "$AFTER" ]; then
+            echo "updated=false" >> "$GITHUB_OUTPUT"
+            echo "Upstream already synced."
+          else
+            echo "updated=true" >> "$GITHUB_OUTPUT"
+            git push origin main
+          fi
+
+      - name: Merge main into working
+        if: steps.sync_main.outputs.updated == 'true'
+        run: |
+          git fetch origin working
+          git checkout working
+          git merge main --no-edit || {
+            echo "conflicts=true" >> "$GITHUB_OUTPUT"
+            echo "Merge conflicts in working — a PR will be opened."
+            git status --porcelain | grep '^UU\|^AA\|^DD' || true
+            exit 0
+          }
+          echo "conflicts=false" >> "$GITHUB_OUTPUT"
+
+      - name: Validate merged working (clean path)
+        if: steps.merge_working.outputs.conflicts == 'false' && steps.sync_main.outputs.updated == 'true'
+        run: |
+          npm ci
+          npm run check
+          ./test.sh
+          git push origin working
+
+      - name: Open conflict-resolution PR against working
+        if: steps.merge_working.outputs.conflicts == 'true'
+        run: |
+          BRANCH="sync-conflicts/$(date +%Y%m%d-%H%M)"
+          git checkout -b "$BRANCH"
+          # keep the conflicted merge in progress as a commit for manual resolution
+          git add -A || true
+          git commit -m "Merge main into working (conflicts marked — resolve me)" --no-verify || true
+          git push origin "$BRANCH"
+          gh pr create \
+            --repo Jeyapaul/pi \
+            --base working \
+            --head "$BRANCH" \
+            --title "⚠ Upstream sync conflicts — resolve in working first" \
+            --body "Upstream main was synced into the fork, but merging into \`working\` hit conflicts. Resolve the conflicts in this branch (conflicted files are committed with conflict markers), then merge this PR into \`working\`. After \`working\` is clean, merge \`working\` → \`main\` to release." \
+            || echo "PR creation failed (may already exist)"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

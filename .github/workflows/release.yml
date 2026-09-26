@@ -1,0 +1,81 @@
+name: Release Jey's Pi
+
+# Triggered when "working" is merged into main (that merge is done manually on
+# instruction). Tests, builds, packages packages/coding-agent as a tarball and
+# publishes a GitHub Release tagged vX.Y.Z — the SAME tag naming as parent pi
+# releases, so fork and parent versions stay in sync. Re-releasing the same
+# version replaces the tag and release artifacts in place.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - ".github/workflows/sync-upstream.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate (npm run check)
+        run: npm run check
+
+      - name: Test (./test.sh)
+        run: ./test.sh
+
+      - name: Build
+        run: npm run build
+
+      - name: Read version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./packages/coding-agent/package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Package coding-agent
+        run: |
+          cd packages/coding-agent
+          npm pack --pack-destination "$GITHUB_WORKSPACE"
+          cd "$GITHUB_WORKSPACE"
+          # canonical asset name independent of package scope
+          TGZ=$(ls *.tgz | head -1)
+          mv "$TGZ" "jeyapaul-pi-${{ steps.version.outputs.version }}.tgz"
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if gh release view "$TAG" --repo Jeyapaul/pi > /dev/null 2>&1; then
+            echo "Release $TAG exists — replacing artifacts in place (re-release)"
+            gh release delete "$TAG" --repo Jeyapaul/pi --yes --cleanup-tag || true
+          fi
+          gh release create "$TAG" \
+            --repo Jeyapaul/pi \
+            --target main \
+            --title "Jey's Pi $VERSION" \
+            --notes "$(printf 'Jey'"'"'s Pi build of upstream pi %s.\n\n**Install:**\n```bash\ngh release download %s --repo Jeyapaul/pi --pattern "*.tgz" --output jey-pi.tgz\nnpm install -g jey-pi.tgz\n```\nSee [INSTALL.md](https://github.com/Jeyapaul/pi/blob/main/INSTALL.md) for post-install setup. Upstream changelog: https://github.com/earendil-works/pi/releases/tag/%s')" \
+            "jeyapaul-pi-$VERSION.tgz"
