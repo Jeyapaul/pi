@@ -332,7 +332,6 @@ export default function (pi: ExtensionAPI) {
 			// (headers are parsed by the transport when enabled; body-embedded
 			// waits only exist in errorMessage text). Surface as a countdown.
 			const waitMs = parseRetryWaitMs(m.errorMessage);
-			try { require("node:fs").appendFileSync("/tmp/sl5/dbg.log", `msg_end: stop=${m.stopReason} wait=${waitMs} err=${(m.errorMessage ?? "").slice(0, 80)}\n`); } catch {}
 			rateLimitedUntil = waitMs ? Date.now() + waitMs : 0;
 		} else {
 			reqTotal++;
