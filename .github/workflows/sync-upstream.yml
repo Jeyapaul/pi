@@ -75,7 +75,7 @@ jobs:
           npm ci --ignore-scripts
           sudo apt-get update && sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fd-find ripgrep
           sudo ln -s $(which fdfind) /usr/local/bin/fd
-          npm run build
+          npm run build:offline
           npm run check
           npm test
           git push origin working

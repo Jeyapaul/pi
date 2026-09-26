@@ -44,8 +44,8 @@ jobs:
           sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fd-find ripgrep
           sudo ln -s $(which fdfind) /usr/local/bin/fd
 
-      - name: Build (generates model data + dist)
-        run: npm run build
+      - name: Build (pinned model data + dist)
+        run: npm run build:offline
 
       - name: Validate (npm run check)
         run: npm run check
