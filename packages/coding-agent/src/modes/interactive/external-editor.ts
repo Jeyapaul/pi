@@ -11,12 +11,39 @@ export interface ExternalEditorOptions {
 
 export type ExternalEditorResult = { status: "complete"; content: string } | { status: "failed" };
 
+// JEYS_PI: split an editor command string into argv, honoring double/single quotes.
+function splitCommand(command: string): string[] {
+	const args: string[] = [];
+	let current = "";
+	let quote: string | null = null;
+	for (const ch of command) {
+		if (quote) {
+			if (ch === quote) quote = null;
+			else current += ch;
+			continue;
+		}
+		if (ch === '"' || ch === "'") {
+			quote = ch;
+			continue;
+		}
+		if (ch === " ") {
+			if (current) args.push(current);
+			current = "";
+			continue;
+		}
+		current += ch;
+	}
+	if (current) args.push(current);
+	return args;
+}
+
 export async function editInExternalEditor(options: ExternalEditorOptions): Promise<ExternalEditorResult> {
 	const directory = mkdtempSync(join(tmpdir(), "pi-editor-"));
 	const filePath = join(directory, "prompt.md");
 	try {
 		writeFileSync(filePath, options.content, "utf-8");
-		const [editor, ...editorArgs] = options.command.split(" ");
+		// JEYS_PI: quote-aware split so editor paths containing spaces (e.g. "/Applications/My Editor/app") survive
+		const [editor, ...editorArgs] = splitCommand(options.command);
 		process.stdout.write(`Launching external editor: ${options.command}\nPi will resume when the editor exits.\n`);
 
 		// Do not use spawnSync here. On Windows, synchronous child_process calls can keep

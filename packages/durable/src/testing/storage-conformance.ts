@@ -4,6 +4,7 @@ import type { Op } from "@earendil-works/chord/delta";
 import { idFromNumber } from "../ids.ts";
 import {
 	type ConversationId,
+	type Cursor,
 	type DocumentCreate,
 	type DocumentId,
 	type EntryId,
@@ -13,6 +14,7 @@ import {
 	type Storage,
 	type StorageWrite,
 	type SubmissionId,
+	type SubmissionQuery,
 	type SubmissionRecord,
 	type TaskId,
 	type TaskRecord,
@@ -35,7 +37,6 @@ function pendingTask(id: TaskId<JsonValue>, conversationId: ConversationId, phas
 		version: 1,
 		input: { value: id },
 		state: { status: "pending", checkpoint: { phase } },
-		after: [],
 		background: false,
 		abortRequested: false,
 	} satisfies StoredTask;
@@ -529,7 +530,6 @@ export function createStorageConformance(options: StorageConformanceOptions): re
 				version: first.version,
 				input: first.input,
 				state: { status: "terminal", outcome: { status: "completed", result: { entryId: 99 } } },
-				after: [],
 				background: false,
 				abortRequested: true,
 			};
@@ -548,6 +548,42 @@ export function createStorageConformance(options: StorageConformanceOptions): re
 			expect(
 				(await storage.scanTasks({ background: true }, 10, undefined, context)).items.map(({ id }) => id),
 			).toEqual([secondId]);
+		}),
+
+		createCase(options, "stores owners and scans waiting and completing tasks by status", async (storage) => {
+			const rootId = await createRoot(storage);
+			const ownerId = await storage.mintId<TaskId<JsonValue>>();
+			const waitingId = await storage.mintId<TaskId<JsonValue>>();
+			const completingId = await storage.mintId<TaskId<JsonValue>>();
+			const owner = pendingTask(ownerId, rootId);
+			const waiting: StoredTask = {
+				...pendingTask(waitingId, rootId),
+				owner: ownerId,
+				state: { status: "waiting", checkpoint: { phase: "next" }, on: [ownerId], policy: "allSettled" },
+				memos: { kept: true },
+			};
+			const { state: _state, ...base } = pendingTask(completingId, rootId);
+			const completing: StoredTask = {
+				...base,
+				owner: ownerId,
+				state: { status: "completing", outcome: { status: "failed", error: { message: "held" } } },
+			};
+			const writes = [owner, waiting, completing].map((value) => ({ type: "task", value }) as const);
+			await storage.commit(writes, context);
+			expect(await storage.task(waitingId, context)).toEqual(waiting);
+			expect(await storage.task(completingId, context)).toEqual(completing);
+			const scan = async (status: StoredTask["state"]["status"]) =>
+				(await storage.scanTasks({ status }, 10, undefined, context)).items;
+			expect(await scan("waiting")).toEqual([waiting]);
+			expect(await scan("completing")).toEqual([completing]);
+			expect((await scan("pending")).map(({ id }) => id)).toEqual([ownerId]);
+			const terminal: StoredTask = {
+				...completing,
+				state: { status: "terminal", outcome: completing.state.outcome! },
+			};
+			await storage.commit([{ type: "task", value: terminal }], context);
+			expect(await scan("completing")).toEqual([]);
+			expect(await scan("terminal")).toEqual([terminal]);
 		}),
 
 		createCase(
@@ -600,6 +636,29 @@ export function createStorageConformance(options: StorageConformanceOptions): re
 				await storage.commit([{ type: "submission", value: placedSecond }], context);
 				expect(await storage.submission(secondId, context)).toEqual(placedSecond);
 				expect(await storage.submissionByRequest(rootId, "other", context)).toEqual(placedSecond);
+
+				const ids = async (query: SubmissionQuery) => {
+					const found: SubmissionId[] = [];
+					let cursor: Cursor | undefined;
+					do {
+						const page = await storage.scanSubmissions(query, 1, cursor, context);
+						found.push(...page.items.map(({ id }) => id));
+						cursor = page.next;
+					} while (cursor !== undefined);
+					return found;
+				};
+				expect(await ids({})).toEqual([firstId, secondId, otherConversationId]);
+				expect(await ids({ conversationId: rootId })).toEqual([firstId, secondId]);
+				// A status change moves the record between status scans.
+				expect(await ids({ status: "queued" })).toEqual([firstId, otherConversationId]);
+				expect(await ids({ status: "placed" })).toEqual([secondId]);
+				expect(await ids({ conversationId: secondConversationId, status: "queued" })).toEqual([
+					otherConversationId,
+				]);
+				expect(await ids({ conversationId: secondConversationId, status: "placed" })).toEqual([]);
+				expect((await storage.scanSubmissions({ status: "placed" }, 10, undefined, context)).items).toEqual([
+					placedSecond,
+				]);
 			},
 		),
 
@@ -689,9 +748,11 @@ export function createStorageConformance(options: StorageConformanceOptions): re
 			expect(await storage.document(firstId, createdAt, context)).toMatchObject({
 				version: 1,
 				value: { items: ["a"], nested: { count: 1 } },
+				deltasSinceBase: 0,
 			});
 			const changed = (await storage.document(firstId, changedAt, context))!;
 			expect(changed.value).toEqual({ items: ["a", "b"], nested: { count: 2 } });
+			expect(changed.deltasSinceBase).toBe(1);
 			(changed.value.items as string[]).push("read mutation");
 			expect((await storage.document(firstId, "current", context))?.value).toEqual({
 				items: ["a", "b"],
@@ -729,11 +790,13 @@ export function createStorageConformance(options: StorageConformanceOptions): re
 			expect(await storage.document(firstId, checkpointAt, context)).toMatchObject({
 				version: 2,
 				value: { items: ["checkpoint"], nested: { count: 3 } },
+				deltasSinceBase: 0,
 			});
-			expect((await storage.document(firstId, replacedAt, context))?.value).toEqual({
-				items: ["replacement"],
-				nested: { count: 4 },
+			expect(await storage.document(firstId, replacedAt, context)).toMatchObject({
+				value: { items: ["replacement"], nested: { count: 4 } },
+				deltasSinceBase: 1,
 			});
+			expect((await storage.document(firstId, "current", context))?.deltasSinceBase).toBe(1);
 
 			const secondId = await storage.mintId<DocumentId>();
 			const retiredAt = await storage.commit(

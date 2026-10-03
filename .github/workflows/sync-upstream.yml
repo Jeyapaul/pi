@@ -43,10 +43,26 @@ jobs:
         id: sync_main
         run: |
           BEFORE=$(git rev-parse main)
-          git merge --ff-only upstream/main || {
-            # upstream history diverged (should not happen on a clean fork main)
-            git merge upstream/main --no-edit -m "Merge upstream/main into main"
-          }
+          if git merge --ff-only upstream/main; then
+            MODE=ff
+          elif git merge upstream/main --no-edit; then
+            MODE=merge
+          else
+            # Jey's Pi commits diverge from upstream — resolve conflicts on a
+            # dedicated branch and open a PR against main for manual resolution
+            git merge --abort 2>/dev/null || true
+            BRANCH="sync-conflicts/main-$(date +%Y%m%d-%H%M)"
+            git checkout -b "$BRANCH"
+            git merge upstream/main --no-edit || true
+            git add -A || true
+            git commit -m "Merge upstream/main into main (conflicts marked — resolve me)" --no-verify || true
+            git push origin "$BRANCH"
+            gh pr create --repo Jeyapaul/pi --base main --head "$BRANCH" \
+              --title "⚠ Upstream sync conflicts — resolve in main first" \
+              --body "Fast-forward from upstream failed because fork main carries Jey's Pi commits. Resolve the conflict markers in this branch, merge the PR into main, then re-run this workflow (main → working continues automatically)." || true
+            echo "conflict_pr=opened" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           AFTER=$(git rev-parse main)
           if [ "$BEFORE" = "$AFTER" ]; then
             echo "updated=false" >> "$GITHUB_OUTPUT"
