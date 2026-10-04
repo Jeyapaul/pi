@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-10-04
+
+## [1.0.1] - 2026-10-03
+
 ### Added
 
 - Added `setImageTranscoder()`, which lets `Image` convert JPEG, GIF, and WebP images to PNG for the Kitty graphics protocol ([#10292](https://github.com/earendil-works/pi/issues/10292))
