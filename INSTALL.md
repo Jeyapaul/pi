@@ -46,10 +46,11 @@ bash "$(npm root -g)/@earendil-works/pi-coding-agent/jey/setup.sh"
 ```
 
 This installs:
-- **Extensions**: `status-line.ts` (3-line footer: context bar, cost, times, diff, req counters, rate-limit countdown), `message-header.ts` (previous-message breadcrumb bar, fullscreen mode)
+- **Extensions**: `status-line.ts` (3-line footer: context bar, cost, times, diff, req counters, rate-limit countdown), `message-header.ts` (previous-message breadcrumb bar, fullscreen mode), `ketch-tools.ts` (web research: `internet_search`, `internet_scrape`, `ketch_docs` — version-correct library docs, `ketch_code` — OSS code search)
 - **Skill**: `plan-mode` (token-efficient planning workflow, `/skill:plan-mode`)
 - **Helpers**: `pi-sessions` (session table with copyable resume commands), `resolve-session.js` (resume by session name) + PATH entry
 - **Settings**: merges missing keys (`tuiMode: fullscreen`, rate-limit-honoring retry policy) — never overwrites your model, packages, or existing values
+- **ketch CLI**: installed globally if missing (backing the web tools). Optional: export `CONTEXT7_API_KEY=<free key from context7.com>` before running setup to enable `ketch_docs`
 
 Then add the resume-by-name wrapper to `~/.zshrc` (manual — it pins a project directory):
 

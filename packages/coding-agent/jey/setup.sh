@@ -8,6 +8,15 @@ AGENT_DIR="${HOME}/.pi/agent"
 
 mkdir -p "$AGENT_DIR/extensions" "$AGENT_DIR/skills" "$AGENT_DIR/bin"
 
+# 0. ketch CLI — web search / scrape / library docs / OSS code search tools
+if ! command -v ketch > /dev/null 2>&1; then
+	echo "Installing ketch CLI (web search tools)..."
+	npm install -g ketch-cli || echo "WARN: ketch install failed — internet_search/internet_scrape/ketch_docs/ketch_code tools will be unavailable"
+fi
+if command -v ketch > /dev/null 2>&1 && [ -n "${CONTEXT7_API_KEY:-}" ]; then
+	ketch config set context7_api_key "$CONTEXT7_API_KEY" && echo "Context7 key configured for ketch_docs"
+fi
+
 # 1. Extensions + skills + helpers (sync from repo, overwrite older copies)
 cp -f "$(dirname "$0")/extensions/"*.ts "$AGENT_DIR/extensions/"
 cp -f "$(dirname "$0")/bin/"* "$AGENT_DIR/bin/"
@@ -56,6 +65,7 @@ echo ""
 echo " Remaining manual steps:"
 echo "   1. pi                 # start; /model to pick your model"
 echo "   2. /login             # provider auth (or set API keys in settings.json)"
+echo "   3. Optional: CONTEXT7_API_KEY=<key> bash setup.sh   # enables ketch_docs (library docs search); free key at context7.com"
 echo "   3. Add the resume-by-name wrapper to ~/.zshrc"
 echo "      (see the repo INSTALL.md — pins a project directory)"
 echo ""
