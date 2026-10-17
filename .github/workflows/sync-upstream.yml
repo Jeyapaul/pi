@@ -61,6 +61,7 @@ jobs:
             git add -A || true
             git commit -m "Merge upstream/main into main (conflicts marked — resolve me)" --no-verify || true
             # strip upstream workflow-file changes — GITHUB_TOKEN cannot push them
+            git rm -rq --ignore-unmatch .github/workflows/ 2>/dev/null || true
             git checkout main -- .github/workflows/ 2>/dev/null || true
             git commit --amend --no-edit --no-verify || true
             git push origin "$BRANCH"
@@ -78,6 +79,7 @@ jobs:
             # strip upstream workflow-file changes — GITHUB_TOKEN cannot push them
             # (workflows scope not grantable at file level). They get merged manually.
             if ! git diff --quiet "$BEFORE" main -- .github/workflows/; then
+              git rm -rq --ignore-unmatch .github/workflows/ 2>/dev/null || true
               git checkout "$BEFORE" -- .github/workflows/
               git commit --amend --no-edit --no-verify
               echo "stripped_workflows=$(git diff --name-only "$BEFORE" upstream/main -- .github/workflows/ | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
