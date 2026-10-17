@@ -16,7 +16,10 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  workflows: write # pushes carry upstream workflow-file changes (nix.yml etc.)
+  issues: write # stripped-workflow-file flagging
+  # NOTE: `workflows` is NOT a grantable scope for GITHUB_TOKEN in workflow-file
+  # permissions (file-level startup failure) — upstream workflow-file changes are
+  # stripped from automated pushes and flagged via issue for a manual local merge.
 
 concurrency:
   group: sync-upstream
@@ -57,10 +60,13 @@ jobs:
             git merge upstream/main --no-edit || true
             git add -A || true
             git commit -m "Merge upstream/main into main (conflicts marked — resolve me)" --no-verify || true
+            # strip upstream workflow-file changes — GITHUB_TOKEN cannot push them
+            git checkout main -- .github/workflows/ 2>/dev/null || true
+            git commit --amend --no-edit --no-verify || true
             git push origin "$BRANCH"
             gh pr create --repo Jeyapaul/pi --base main --head "$BRANCH" \
               --title "⚠ Upstream sync conflicts — resolve in main first" \
-              --body "Fast-forward from upstream failed because fork main carries Jey's Pi commits. Resolve the conflict markers in this branch, merge the PR into main, then re-run this workflow (main → working continues automatically)." || true
+              --body "Fast-forward from upstream failed because fork main carries Jey's Pi commits. Resolve the conflict markers in this branch, merge the PR into main, then re-run this workflow (main → working continues automatically). NOTE: .github/workflows/ files were restored to main's versions — merge upstream workflow-file changes manually when you resolve locally." || true
             echo "conflict_pr=opened" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -69,9 +75,25 @@ jobs:
             echo "updated=false" >> "$GITHUB_OUTPUT"
             echo "Upstream already synced."
           else
+            # strip upstream workflow-file changes — GITHUB_TOKEN cannot push them
+            # (workflows scope not grantable at file level). They get merged manually.
+            if ! git diff --quiet "$BEFORE" main -- .github/workflows/; then
+              git checkout "$BEFORE" -- .github/workflows/
+              git commit --amend --no-edit --no-verify
+              echo "stripped_workflows=$(git diff --name-only "$BEFORE" upstream/main -- .github/workflows/ | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
+            fi
             echo "updated=true" >> "$GITHUB_OUTPUT"
             git push origin main
           fi
+
+      - name: Flag stripped workflow files for manual merge
+        if: steps.sync_main.outputs.stripped_workflows != ''
+        run: |
+          gh issue create --repo Jeyapaul/pi \
+            --title "⚙ Upstream workflow-file changes stripped from automated sync — manual merge needed" \
+            --body "The sync workflow stripped upstream changes to: ${{ steps.sync_main.outputs.stripped_workflows }}\n\nReason: GITHUB_TOKEN cannot create/update workflow files (the \`workflows\` scope is not grantable in workflow-file permissions).\n\nManual merge (2 commands):\n\`\`\`bash\ngit fetch upstream && git checkout main\ngit merge upstream/main --no-edit && git push origin main\n\`\`\`\nThen merge \`main\` → \`working\` to release."
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Merge main into working
         if: steps.sync_main.outputs.updated == 'true'
