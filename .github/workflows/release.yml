@@ -47,6 +47,9 @@ jobs:
       - name: Build (pinned model data + dist)
         run: npm run build:offline
 
+      - name: Build env daemon (Rust — required by env tests since upstream v1.3.0)
+        run: npm run build:daemon -w packages/env
+
       - name: Validate (npm run check)
         run: npm run check
 
