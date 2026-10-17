@@ -16,6 +16,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  workflows: write # pushes carry upstream workflow-file changes (nix.yml etc.)
 
 concurrency:
   group: sync-upstream

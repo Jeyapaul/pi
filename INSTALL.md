@@ -46,9 +46,9 @@ bash "$(npm root -g)/@earendil-works/pi-coding-agent/jey/setup.sh"
 ```
 
 This installs:
-- **Extensions**: `status-line.ts` (3-line footer: context bar, cost, times, diff, req counters, rate-limit countdown), `message-header.ts` (previous-message breadcrumb bar, fullscreen mode), `ketch-tools.ts` (web research: `internet_search`, `internet_scrape`, `ketch_docs` — version-correct library docs, `ketch_code` — OSS code search)
-- **Skill**: `plan-mode` (token-efficient planning workflow, `/skill:plan-mode`)
-- **Helpers**: `pi-sessions` (session table with copyable resume commands), `resolve-session.js` (resume by session name) + PATH entry
+- **Extensions**: `status-line.ts` (4-line footer: context bar, total cost incl. agent team, times, diff, req counters, rate-limit countdown, fleet roster + OpenRouter credits), `message-header.ts` (previous-message breadcrumb bar, fullscreen mode), `ketch-tools.ts` (web research: `internet_search`, `internet_scrape`, `ketch_docs` — version-correct library docs, `ketch_code` — OSS code search), `agent-team.ts` (multi-agent orchestration: `spawn_research_agent`, `spawn_implement_agent`, `advise` advisor gates, `/agents` role→model command)
+- **Skill**: `plan-mode` (token-efficient planning workflow, `/skill:plan-mode`) + agent-team skills: `research-mode` (`/skill:research` — delegated research), `implement-mode` (`/skill:implement` — delegated plan execution), `advise-mode` (`/skill:advise` — advisor gate doctrine)
+- **Helpers**: `pi-sessions` (session table with copyable resume commands), `resolve-session.js` (resume by session name), `pi-resume` (interactive `pi -r` session picker — arrows + Enter) + PATH entry
 - **Settings**: merges missing keys (`tuiMode: fullscreen`, rate-limit-honoring retry policy) — never overwrites your model, packages, or existing values
 - **ketch CLI**: installed globally if missing (backing the web tools). Optional: export `CONTEXT7_API_KEY=<free key from context7.com>` before running setup to enable `ketch_docs`
 

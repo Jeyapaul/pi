@@ -21,11 +21,13 @@ fi
 cp -f "$(dirname "$0")/extensions/"*.ts "$AGENT_DIR/extensions/"
 cp -f "$(dirname "$0")/bin/"* "$AGENT_DIR/bin/"
 chmod +x "$AGENT_DIR/bin/"*
-if [ -d "$(dirname "$0")/skills/plan-mode" ]; then
-	mkdir -p "$AGENT_DIR/skills/plan-mode/references"
-	cp -f "$(dirname "$0")/skills/plan-mode/SKILL.md" "$AGENT_DIR/skills/plan-mode/SKILL.md"
-	cp -f "$(dirname "$0")/skills/plan-mode/references/"* "$AGENT_DIR/skills/plan-mode/references/"
-fi
+# copy every skill dir shipped in jey/skills (plan-mode, research-mode, implement-mode, advise-mode, agent-team)
+for skill_dir in "$(dirname "$0")"/skills/*/; do
+	skill_name=$(basename "$skill_dir")
+	mkdir -p "$AGENT_DIR/skills/$skill_name/references"
+	cp -f "$skill_dir/SKILL.md" "$AGENT_DIR/skills/$skill_name/SKILL.md" 2>/dev/null || true
+	cp -f "$skill_dir/references/"* "$AGENT_DIR/skills/$skill_name/references/" 2>/dev/null || true
+done
 
 # 2. Settings: merge only missing keys — never overwrite user's models/sessions
 python3 - "$AGENT_DIR/settings.json" "$(dirname "$0")/settings.json" << 'PYEOF'
@@ -34,7 +36,7 @@ settings_path, template_path = sys.argv[1], sys.argv[2]
 mine = json.load(open(template_path))
 cur = json.load(open(settings_path)) if os.path.exists(settings_path) else {}
 changed, added = False, []
-for key in ("theme", "tuiMode", "retry", "terminal", "showCacheMissNotices"):
+for key in ("theme", "tuiMode", "retry", "terminal", "showCacheMissNotices", "agentTeam"):
 	if key not in cur and key in mine:
 		cur[key] = mine[key]
 		added.append(key)

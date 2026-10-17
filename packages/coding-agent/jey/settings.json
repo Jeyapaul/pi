@@ -3,10 +3,16 @@
   "defaultProvider": "anthropic",
   "lastChangelogVersion": "0.87.1",
   "packages": [
-    "npm:@ollama/pi-web-search",
     "git:github.com/huggingface/pi-llama",
     "npm:pi-git-auth"
   ],
+  "agentTeam": {
+    "roles": {
+      "research": { "model": "z-ai/glm-5.3-flash", "provider": "openrouter", "maxCostUsd": 0.5, "timeoutMin": 10 },
+      "implement": { "model": "deepseek/deepseek-v4-pro", "provider": "openrouter", "maxCostUsd": 2.0, "timeoutMin": 30 }
+    },
+    "advisor": { "failOpen": true, "model": "jev-latest" }
+  },
   "theme": "dark",
   "tuiMode": "fullscreen",
   "retry": {
