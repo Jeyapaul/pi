@@ -145,6 +145,32 @@ if (flags.has("--json")) {
 	process.exit(0);
 }
 
+// --prune: delete junk sessions — unnamed, ≤1 assistant message, older than 7 days.
+// Default scope: ephemeral temp/runtime project dirs only. --prune-aggressive: anywhere.
+if (flags.has("--prune")) {
+	const aggressive = flags.has("--prune-aggressive");
+	const week = Date.now() - 7 * 24 * 3600 * 1000;
+	const junk = sessions.filter(
+		(s) => !s.name && s.msgs <= 1 && s.mtime < week &&
+			(aggressive || /\/var\/folders\/|\/private\/tmp\/|\/tmp\//.test(s.cwd)),
+	);
+	let freed = 0;
+	for (const s of junk) {
+		try {
+			fs.rmSync(s.file, { force: true });
+			freed += s.size;
+		} catch {}
+	}
+	console.log(`pruned ${junk.length} junk session(s), freed ${(freed / 1024).toFixed(0)}K`);
+	process.exit(0);
+}
+
+// Default: hide sessions created by ephemeral/runtime processes (temp-dir cwds) —
+// they're pi plumbing, not user history. Pass --all to include them.
+if (!flags.has("--all")) {
+	sessions = sessions.filter((s) => !/\/var\/folders\/|\/private\/tmp\/|\/tmp\//.test(s.cwd));
+}
+
 // Group by project (keep newest-first within group, groups ordered by newest session)
 const groups = new Map();
 for (const s of sessions) {

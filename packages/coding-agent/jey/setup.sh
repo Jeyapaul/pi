@@ -48,7 +48,18 @@ else:
 	print("settings.json already has Jey's Pi keys (unchanged)")
 PYEOF
 
-# 3. PATH: ensure ~/.pi/agent/bin is on PATH in the user's shell rc (once)
+# 3. Session GC: daily launchd job removing unnamed pi sessions (macOS only)
+if [[ "$(uname)" == "Darwin" ]] && [ -f "$AGENT_DIR/bin/pi-session-gc" ]; then
+	PLIST="$HOME/Library/LaunchAgents/com.jey.pi-session-gc.plist"
+	if [ ! -f "$PLIST" ] || ! diff -q "$(dirname "$0")/plist/com.jey.pi-session-gc.plist" "$PLIST" >/dev/null 2>&1; then
+		mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
+		cp -f "$(dirname "$0")/plist/com.jey.pi-session-gc.plist" "$PLIST"
+		launchctl unload "$PLIST" 2>/dev/null || true
+		launchctl load "$PLIST" && echo "Session GC LaunchAgent installed (daily 09:00)"
+	fi
+fi
+
+# 4. PATH: ensure ~/.pi/agent/bin is on PATH in the user's shell rc (once)
 for rc in "$HOME/.zshrc" "$HOME/.bashrc"; do
 	if [ -f "$rc" ] && ! grep -q ".pi/agent/bin" "$rc"; then
 		printf '\n# pi helper scripts (pi-sessions)\nexport PATH="$HOME/.pi/agent/bin:$PATH"\n' >> "$rc"

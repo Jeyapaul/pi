@@ -24,8 +24,10 @@ function listSessions() {
 		process.exit(1);
 	}
 	const sessions = JSON.parse(raw.stdout);
-	sessions.sort((a, b) => Number(b.mtime) - Number(a.mtime)); // last use first
-	return sessions;
+	// hide ephemeral runtime/process sessions (temp-dir cwds) — same rule as pi-sessions default
+	const visible = sessions.filter((s) => !/\/var\/folders\/|\/private\/tmp\/|\/tmp\//.test(s.cwd));
+	visible.sort((a, b) => Number(b.mtime) - Number(a.mtime)); // last use first
+	return visible;
 }
 
 function fmtAge(ms) {

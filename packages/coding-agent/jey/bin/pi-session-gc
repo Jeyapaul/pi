@@ -1,0 +1,84 @@
+#!/usr/bin/env node
+/**
+ * pi-session-gc — scheduled cleanup of unnamed pi sessions.
+ *
+ * Rules (never touches named sessions):
+ *   - unnamed + ≤1 assistant message        → delete after PI_GC_EMPTY_DAYS   (default 7)
+ *   - unnamed + has content                 → delete after PI_GC_CONTENT_DAYS (default 30)
+ *
+ * Runs standalone or via the com.jey.pi-session-gc LaunchAgent (daily).
+ * Env overrides: PI_GC_EMPTY_DAYS, PI_GC_CONTENT_DAYS, PI_GC_DRY_RUN=1.
+ */
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+
+const ROOT = path.join(os.homedir(), ".pi/agent/sessions");
+const EMPTY_DAYS = Number(process.env.PI_GC_EMPTY_DAYS ?? 7);
+const CONTENT_DAYS = Number(process.env.PI_GC_CONTENT_DAYS ?? 30);
+const DRY = process.env.PI_GC_DRY_RUN === "1";
+const DAY = 24 * 3600 * 1000;
+
+function extract(file) {
+	let name;
+	let msgs = 0;
+	try {
+		for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+			if (!line) continue;
+			if (line.includes('"session_info"')) {
+				try {
+					const e = JSON.parse(line);
+					if (e.payload?.name) name = e.payload.name;
+				} catch {}
+			}
+			if (line.includes('"role":"assistant"')) msgs++;
+		}
+	} catch {
+		return null;
+	}
+	return { name, msgs };
+}
+
+let deleted = 0;
+let freed = 0;
+const kept = { named: 0, recent: 0 };
+const now = Date.now();
+
+for (const dir of fs.readdirSync(ROOT)) {
+	const d = path.join(ROOT, dir);
+	if (!fs.statSync(d).isDirectory()) continue;
+	for (const entry of fs.readdirSync(d)) {
+		if (!entry.endsWith(".jsonl")) continue;
+		const file = path.join(d, entry);
+		const st = fs.statSync(file);
+		const info = extract(file);
+		if (!info) continue;
+		if (info.name) {
+			kept.named++;
+			continue;
+		}
+		const ageDays = (now - st.mtimeMs) / DAY;
+		const limit = info.msgs <= 1 ? EMPTY_DAYS : CONTENT_DAYS;
+		if (ageDays < limit) {
+			kept.recent++;
+			continue;
+		}
+		if (DRY) {
+			console.log(`[dry-run] would delete ${file} (${info.msgs} msgs, ${ageDays.toFixed(0)}d old)`);
+			deleted++;
+			freed += st.size;
+			continue;
+		}
+		try {
+			fs.rmSync(file, { force: true });
+			deleted++;
+			freed += st.size;
+		} catch {}
+	}
+}
+
+const line = `pi-session-gc: deleted ${deleted} unnamed session(s), freed ${(freed / 1024).toFixed(0)}K (kept: ${kept.named} named, ${kept.recent} too recent)`;
+console.log(line);
+try {
+	fs.appendFileSync(path.join(os.homedir(), "Library/Logs/pi-session-gc.log"), `${new Date().toISOString()} ${line}\n`);
+} catch {}
