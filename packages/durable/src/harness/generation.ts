@@ -1,4 +1,4 @@
-import { type Context, copyJson, type Draft, type JsonValue } from "@earendil-works/chord";
+import { type Context, copyJson, type Draft } from "@earendil-works/chord";
 import type {
 	Api,
 	AssistantMessage,
@@ -31,8 +31,8 @@ import type {
 import { addTools, sectionExtension } from "./agent.ts";
 import { compactionPolicy, createCompaction, estimateContext, selectCut } from "./compaction.ts";
 import { applyBoundary, type Boundary, prepareBoundary, withdrawQueuedInputs } from "./inbox.ts";
-import { assignJson } from "./json.ts";
-import { endRun, LiveDoc, type LiveState, type ToolSlot } from "./live.ts";
+import { endRun, LiveDoc, type LiveState, PROGRESS_COMMIT, type ToolSlot } from "./live.ts";
+import { PartialChanges, type PartialMessage } from "./partial-changes.ts";
 import { planSystemEntries, renderSections, replaySections } from "./prompt.ts";
 import { ensureProviderSessionId } from "./provider.ts";
 import { appendToolResult, harnessError, ToolTask, type ToolTaskResult } from "./tool.ts";
@@ -81,6 +81,8 @@ export type GenerationCheckpoint =
 			attempt: number;
 			compacted?: TaskId<CompactionResult>;
 			model: ModelRef;
+			/** Absent in checkpoints of earlier versions. */
+			thinkingLevel?: ModelThinkingLevel;
 			cutoff: EntryId;
 			handle: DeferredHandle;
 			pollAt: number;
@@ -106,6 +108,7 @@ type Request = {
 	readonly attempt: number;
 	readonly compacted: TaskId<CompactionResult> | undefined;
 	readonly model: ModelRef;
+	readonly thinkingLevel: ModelThinkingLevel | undefined;
 	readonly cutoff: EntryId;
 	/** Committed model context through `cutoff`, when the phase already derived it. */
 	readonly messages?: readonly Message[];
@@ -231,7 +234,7 @@ export const GenerationTask = defineTask<GenerationInput, GenerationCheckpoint, 
 				...(thinkingLevel === "off" ? {} : { reasoning: thinkingLevel }),
 			};
 			const message = await streamResponse(runtime, model, messages, options, attempt, context);
-			const request = { attempt, compacted, model: ref, cutoff, messages: view.messages };
+			const request = { attempt, compacted, model: ref, thinkingLevel, cutoff, messages: view.messages };
 			await classify(runtime, request, message, context);
 		},
 		/** After the backoff's sleep; a run before `until` (an early wake, or a record of an earlier version) sleeps again. */
@@ -250,7 +253,7 @@ export const GenerationTask = defineTask<GenerationInput, GenerationCheckpoint, 
 		},
 		/** After the sleep until `pollAt`; a run before it (an early wake, or a record of an earlier version) sleeps again. */
 		poll: async (task, runtime, context) => {
-			const { attempt, compacted, model: ref, cutoff, handle, pollAt } = task.state.checkpoint;
+			const { attempt, compacted, model: ref, thinkingLevel, cutoff, handle, pollAt } = task.state.checkpoint;
 			if (pollAt > runtime.now()) return runtime.sleepUntil(pollAt, task.state.checkpoint, context);
 			const model = runtime.models.getModel(ref.provider, ref.modelId);
 			if (model === undefined) return failNoModel(runtime, ref, context);
@@ -258,7 +261,7 @@ export const GenerationTask = defineTask<GenerationInput, GenerationCheckpoint, 
 				signal: runtime.signal,
 				telemetry: context.telemetry,
 			});
-			const request = { attempt, compacted, model: ref, cutoff, pollAt };
+			const request = { attempt, compacted, model: ref, thinkingLevel, cutoff, pollAt };
 			await classify(runtime, request, message, context);
 		},
 		tools: async (task, runtime, context) => {
@@ -440,8 +443,10 @@ export async function convertPartial(tx: Tx, live: Draft<LiveState>, conversatio
 
 /**
  * Stream one request and return the terminal message. Partials commit as trailing writes at most every
- * `progress.partialIntervalMs` (default 100 ms) with one commit in flight; `finally` stops the throttle and awaits that
- * commit, so no stale partial lands after the outcome.
+ * `progress.partialIntervalMs` (default 100 ms) with one commit in flight, deferred (`PROGRESS_COMMIT`); `finally` stops
+ * the throttle and awaits that commit, so no stale partial lands after the outcome. A commit appends what text and
+ * thinking grew by and applies the argument changes since the last one (`PartialChanges`), so its cost follows the new
+ * text, not the strings' length.
  */
 async function streamResponse(
 	runtime: Runtime,
@@ -456,20 +461,32 @@ async function streamResponse(
 	let timer: (() => void) | undefined;
 	let inFlight: Promise<void> | undefined;
 	let stopped = false;
+	const changes = new PartialChanges();
 	const flush = (): void => {
 		timer = undefined;
 		const partial = pending;
 		pending = undefined;
 		if (partial === undefined || stopped) return;
 		inFlight = (async () => {
-			// Copy synchronously: the provider keeps mutating its partial.
-			const message = copyJson(partial, { omitUndefinedProperties: true });
-			await runtime.commit(async (tx) => {
-				const live = await tx.doc(LiveDoc, runtime.conversationId);
-				live.generation ??= { attempt };
-				assignJson(live.generation as Draft<Record<string, JsonValue>>, "message", message);
-				return undefined;
-			}, context);
+			// Copy synchronously: the provider keeps mutating its partial. The changes since the last commit belong to it.
+			// `copyJson()` returns untyped JSON; a copy of a message is that message's JSON representation.
+			const message = copyJson(partial, { omitUndefinedProperties: true }) as PartialMessage;
+			const taken = changes.take(message);
+			try {
+				await runtime.commit(
+					async (tx) => {
+						const live = await tx.doc(LiveDoc, runtime.conversationId);
+						live.generation ??= { attempt };
+						changes.commit(live.generation, message, taken);
+						return undefined;
+					},
+					context,
+					PROGRESS_COMMIT,
+				);
+			} catch (error) {
+				changes.restore(taken);
+				throw error;
+			}
 		})()
 			.catch((error: unknown) => {
 				// Rejections after an abort mark or close are expected; the committed state stays consistent.
@@ -486,6 +503,7 @@ async function streamResponse(
 			// A partial without content, such as pi-ai's opening `start` event, shows nothing; a deferred response
 			// never gets past it, so it never leaves a partial.
 			if (event.type === "done" || event.type === "error" || event.partial.content.length === 0) continue;
+			changes.observe(event);
 			pending = event.partial;
 			if (timer === undefined && inFlight === undefined) timer = runtime.setTimer(flush, interval);
 		}
@@ -507,7 +525,9 @@ async function classify(
 	// An abort mark or close: the abort invocation or the reopened run handles the committed state.
 	runtime.signal.throwIfAborted();
 	const conversationId = runtime.conversationId;
-	const { attempt, compacted, model: ref, cutoff } = request;
+	const { attempt, compacted, model: ref, thinkingLevel, cutoff } = request;
+	// Record the requested level, as pi-agent-core's agent loop does.
+	if (thinkingLevel !== undefined) message.thinkingLevel = thinkingLevel;
 	if (message.stopReason === "deferred" && message.deferred !== undefined) {
 		const handle = message.deferred;
 		const pollAt = Math.max(
@@ -521,6 +541,7 @@ async function classify(
 				attempt,
 				...(compacted === undefined ? {} : { compacted }),
 				model: ref,
+				...(thinkingLevel === undefined ? {} : { thinkingLevel }),
 				cutoff,
 				handle,
 				pollAt,
@@ -675,8 +696,9 @@ async function startToolRound(
 }
 
 /**
- * The round's tools are terminal: apply their controls and either end the run at the final boundary (`terminate`,
- * `handoff`, or a queued reset) or hand it to the next generation at the `postTools` boundary (spec §8.5).
+ * The round's tools are terminal: apply their controls, append a `handoff`'s reset, and then end the run at the final
+ * boundary (`terminate`), end it at a queued reset, or hand it to the next generation at the `postTools` boundary, in
+ * the handoff's new context when there is one (spec §8.5).
  */
 async function finishToolRound(
 	runtime: Runtime,
@@ -710,12 +732,13 @@ async function finishToolRound(
 		if (added.length > 0) await addTools(tx, conversationId, added);
 		const live = await tx.doc(LiveDoc, conversationId);
 		const now = runtime.now();
-		if (terminate || handoff !== undefined) {
-			if (handoff !== undefined) {
-				const message = { role: "user", content: handoff, timestamp: now } as const;
-				const entry = await tx.appendEntry(ResetEntry, conversationId, { head: "self", model: [message] });
-				boundary.head = entry.id;
-			}
+		if (handoff !== undefined) {
+			// The handoff's reset precedes every queued item, so queued writes and selected steers land in its context.
+			const message = { role: "user", content: handoff, timestamp: now } as const;
+			const entry = await tx.appendEntry(ResetEntry, conversationId, { head: "self", model: [message] });
+			boundary.head = entry.id;
+		}
+		if (terminate) {
 			const { users } = await applyBoundary(tx, boundary, "final", now);
 			endRun(tx, live, runtime.taskId, { status: "done", answer: assistant });
 			if (users.length > 0) await startRun(tx, conversationId, live, users);
